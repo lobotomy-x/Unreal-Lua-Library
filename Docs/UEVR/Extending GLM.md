@@ -81,8 +81,7 @@ end
 
 local function component_expression(func, a, b)
     local c = min(select('#', a:components()), select('#', b:components()))
-    a:set(func(a.x, b.x), func(a.y, b.y), c > 2 and func(a.z, b.z) or nil, c > 3 and func(a.w, b.w) or nil)
-    return a
+    return vector(func(a.x, b.x), func(a.y, b.y), c > 2 and func(a.z, b.z) or nil, c > 3 and func(a.w, b.w) or nil)
 end
 
 -- patched in the backend
@@ -94,32 +93,26 @@ local function vector_div(vec, s)
     end
 end
 
-local _v3f = Vector3f.new(1,1,1)
-local v3_mt = getmetatable(_v3f)
-function v3_mt.__div(a, b)
-    return vector_div(a, b)
-end
-local _v3d = Vector3d.new(1,1,1)
-local v3d_mt = getmetatable(_v3d)
-function v3d_mt.__div(a, b)
+function Vector3f.__div(a, b)
     return vector_div(a, b)
 end
 
-local _v2f = Vector2f.new(1,1)
-local v2_mt = getmetatable(_v2f)
-function v2_mt.__div(a, b)
+function Vector3d.__div(a, b)
     return vector_div(a, b)
 end
-local _v4f = Vector4f.new(1,1,1,1)
-local v4_mt = getmetatable(_v4f)
-function v4_mt.__div(a, b)
+
+function Vector2f.__div(a, b)
+    return vector_div(a, b)
+end
+
+function Vector4f.__div(a, b)
     return vector_div(a, b)
 end
 
 -- print("div test")
 
 -- local v = Vector3.new(2, 2, 2) / Vector3.new(1, 1, 1)
--- print(v:to_string())
+-- print(v.x)
 
 
 local function vector_mult_structs(a, b)
@@ -141,7 +134,7 @@ local function _size(v)
 end
 
 
--- this is really satisfying
+-- this is really satisfying butnot very useful once my lua api update gets merged
 local struct_comps = {
         {"X"},
         {"X", "Y"},
@@ -220,10 +213,3 @@ function Vector3:rotate(quat)
 end
 
 
--- expects a proper transform struct meaning Rotation should be an Unreal Quat
-function Vector3:local_to_world(transform)
-    local location_scaled = component_expression(_mul, self, transform.Scale3D)
-    local rotated_vector = location_scaled:rotate(transform.Rotation)
-    return rotated_vector + Vector3f.new(transform.Translation.X, transform.Translation.Y, transform.Translation.Z)
-end
-```
