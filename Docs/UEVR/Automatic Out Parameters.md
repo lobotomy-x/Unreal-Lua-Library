@@ -1,129 +1,7 @@
+The following technique allows for automatic out parameter handling when calling ufunctions. UEVR handles out arguments by putting the data into a a.result where a is an empty table passed for the out param. To retrieve the data one would need to manually create every possible argument The perfect example is BreakHitResult. This function allows us to pass table or actual hitresult data and split everything into tables without needing to handle UE versions changing the hitresult struct. These functions provided below can received tables with parameter names as keys and input arguments as values and will automatically fill only the needed out arguments with empty tables.
+
+
 ```lua
-
-
-local function base_types(coreuobjecttype)
-     return  api:find_uobject("Class /Script/CoreUObject."..coreuobjecttype)
-end
-local all_classes, all_structs, all_func, all_script_struct, all_enum
-local base_class, base_struct, base_script_struct, base_func, base_enum
-
-function UniqueShortNames()
-
-    local s,r = pcall(function()
-        local t = json.load_file("class_short_names.json")
-        if #t > 0 then return t end
-    end)
-    if s then return r end
-    base_class = base_class or base_types("Class")
-    all_classes = base_class:get_objects_matching(false)
-    local short_names = {}
-    for i, v in ipairs(all_classes) do
-        if v.get_class and v:get_class() == base_class then
-            local short_name = v:get_fname():to_string()
-            local full_name = v:get_full_name()
-            if short_names[short_name] ~= nil
-                then
-
-               log("Duplicate short name "..short_name.." will be "..v:get_outer():get_short_name().."."..short_name)
-                    short_name = v:get_outer():get_short_name().."."..short_name
-            end
-            short_names[short_name] = full_name
-        end
-    end
-    json.dump_file("class_short_names.json", short_names, 4)
-    return short_names
-end
-
- local _cache = setmetatable({}, {__mode = "v"})
-function get(input)
-    if not (type(input) == "string") then
-            if type(input) == "number" then
-                local temp = api:to_uobject(input)
-                if temp ~= nil then
-                    return temp
-                end
-            elseif type(input) == "userdata" then
-            return input
-            elseif input == nil then error("nil input")
-        end
-    end
-    short_names = short_names or UniqueShortNames()
-    if short_names and short_names[input] ~= nil then input = short_names[input]
-    elseif input:sub(1, 5) ~= "Class" and input:sub(1, 12) ~= "ScriptStruct" then
-        local engine_input =  "Class /Script/Engine.".. input
-        if  _cache[engine_input] ~= nil and UEVR_UObjectHook.exists( _cache[engine_input]) then
-            return  _cache[engine_input]
-        else
-            local temp = uevr.api:find_uobject(engine_input)
-            if temp ~= nil and UEVR_UObjectHook.exists(temp) then
-                _cache[engine_input] = temp
-                return _cache[engine_input]
-            end
-        end
-    end
-    if _cache[input] ~= nil and UEVR_UObjectHook.exists( _cache[input])  then
-       return _cache[input]
-    else
-        local temp = uevr.api:find_uobject(input)
-          _cache[input] = UEVR_UObjectHook.exists(temp) and temp or nil
-    end
-   return _cache[input]
-end
-function M.GetActorFromHitResult(HitResult, actor_data)
-    if HitResult == nil then
-        return nil
-    end
-    local t = M.BreakHitResult(HitResult)
-    return t.HitActor or nil
-end
-
-function M.DumpHitResult(hitresult, tojson)
-    local results = M.BreakHitResult(hitresult)
-
- local text = {}
-    for k, v in pairs(results) do
-        text[k] = v.to_string and v:to_string() or tostring(v)
-    end
-    if tojson then json.dump_file("hitresults\\" .. tostring(os.time()) .. ".json", text, 4) end
-    return text
-end
-
-
-
-
-local function is_out_param(func, prop)
-    return func:find_property(prop):is_out_param()
-end
-
-
-local function get_param_names(func)
-    local params = func:as_function():get_child_properties()
-    local param_names = {}
-    while params ~= nil do
-        local p = params:get_fname():to_string()
-        table.insert(param_names, p)
-        params = params:get_next()
-    end
-    return param_names
-end
-
-local function get_param_data(func)
-    local param_names = M.get_param_names(func)
-    local data = {}
-    for i, name in ipairs(param_names) do
-        data[name] = {}
-        local fprop = func:find_property(name)
-        if fprop.is_param and fprop:is_param() then
-            data[name] = {
-                is_out_param = fprop:is_out_param(),
-                is_return_param = fprop:is_return_param(),
-                is_reference_param = fprop:is_reference_param(),
-            }
-        end
-    end
-end
-
-
 
 local function build_out_params(func)
     local params = func:as_function():get_child_properties()
@@ -144,23 +22,16 @@ local function build_out_params(func)
 end
               
 function string:find_first_of(include_cdo)
-    return UEVR_UObjectHook.get_first_object_by_class(get(self), include_cdo)
+    return UEVR_UObjectHook.get_first_object_by_class(api:find_uobject(self), include_cdo)
 end
-
-
-function string:find_all_instances(include_cdo)
-    return get(self):get_objects_matching(include_cdo)
-end
-
 
 -- this allows for version independent hitresult analysis 
-function M.BreakHitResult(hitresult)
-    Statics = _G.Statics or ("GameplayStatics"):find_first_of(true)
+function BreakHitResult(hitresult)
+    Statics = ("Class /Script/Engine.GameplayStatics"):find_first_of(true)
     local func = Statics.BreakHitResult
     local tbls = {}
 
      local tbls, order = build_out_params(func)
-     --tbls.Hit = hitresult
     -- Collect arguments in order
     -- start with the hitresult already in the table
 
@@ -188,19 +59,66 @@ function M.BreakHitResult(hitresult)
         local name = order[i]
         results[name] =  tbls[name].result
     end
-    if os.time() % 5 == 0 then
-        local text = {}
-        for k, v in pairs(results) do
-            if v ~= nil then
-                text[k] = can_index(v) and v.to_string and v:to_string() or tostring(v)
-            end
-        end
-        json.dump_file("hitresults\\" .. tostring(os.time()) .. ".json", text, 4)
-    end
-
     return results
+end
+```
+
+Here's a version specific implementation that only works for BreakHitResult and won't handle future version changes if they occur
+```lua
+function M.getCleanHitResult(hitResult)
+	if hitResult ~= nil then
+		local bBlockingHit = {}
+		local bInitialOverlap = {}
+		local Time = {}
+		local Distance = {}
+		local Location = {}
+		local ImpactPoint = {}
+		local Normal = {}
+		local ImpactNormal = {}
+		local PhysMat = {}
+		local HitActor = {}
+		local HitComponent = {}
+		local HitBoneName = {}
+		local HitItem = {}
+		local ElementIndex = {}
+		local FaceIndex = {}
+		local TraceStart = {}
+		local TraceEnd = {}
+
+		--static void BreakHitResult(const struct FHitResult& Hit, bool* bBlockingHit, bool* bInitialOverlap, float* Time, float* Distance, struct FVector* Location, struct FVector* ImpactPoint, struct FVector* Normal, struct FVector* ImpactNormal, class UPhysicalMaterial** PhysMat, class AActor** HitActor, class UPrimitiveComponent** HitComponent, class FName* HitBoneName, class FName* BoneName, int32* HitItem, int32* ElementIndex, int32* FaceIndex, struct FVector* TraceStart, struct FVector* TraceEnd);
+		local success = pcall(function()
+			Statics:BreakHitResult(hitResult, bBlockingHit, bInitialOverlap, Time, Distance, Location, ImpactPoint, Normal, ImpactNormal, PhysMat, HitActor, HitComponent, HitBoneName, HitItem, ElementIndex, FaceIndex, TraceStart, TraceEnd )
+		end)
+		if not success then
+			--M.print("BreakHitResult failed, falling back to hitResult fields", LogLevel.Warning)
+		end
+
+		local details = {}
+		details.FaceIndex = hitResult.FaceIndex
+		details.Time = hitResult.Time
+		details.Distance = hitResult.Distance
+		details.Location = M.vector(hitResult.Location)
+		details.ImpactPoint = M.vector(hitResult.ImpactPoint)
+		details.Normal = M.vector(hitResult.Normal)
+		details.ImpactNormal = M.vector(hitResult.ImpactNormal)
+		details.TraceStart = M.vector(hitResult.TraceStart)
+		details.TraceEnd = M.vector(hitResult.TraceEnd)
+		details.PenetrationDepth = hitResult.PenetrationDepth
+		details.Item = hitResult.Item
+		details.ElementIndex = hitResult.ElementIndex
+		details.bBlockingHit = hitResult.bBlockingHit
+		details.bStartPenetrating = hitResult.bStartPenetrating
+		details.PhysMaterial = PhysMat.result
+		details.Actor = HitActor.result
+		details.Component = HitComponent.result
+		details.BoneName = HitBoneName.result and HitBoneName.result:to_string() or nil
+		details.MyBoneName = hitResult.MyBoneName and hitResult.MyBoneName:to_string() or nil
+		return details
+	end
+	return nil
 end
 
 
-
 ```
+
+Which one is better?
