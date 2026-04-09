@@ -17,17 +17,12 @@
 | Doesn't matter except for macros      | Never matters      | Critical           |
 
 
-
-
-## Lua Things from a man with ~7 months of lua experience
-reminder that I am a self taught programmer and am also not trying to be overly formal here so I may occasionally misuse or mixup a term that would be obvious to someone with a computer science degree, e.g. parameters (defined in function signature) vs arguments (actual values passed). I could use AI to rewrite this for me like anyone else would but no...
-
 ### Strings
-Strings are really weird in lua! Everything is a string, everything can be a string, you can write your entire program as a string and then load it as a chunk, but you can't modify a string ever. Wait but lobotomy I thought we can concatetanate with `..`
+Strings are really weird in lua! Everything is a string, everything can be a string, you can write your entire program as a string and then load it as a chunk, but you can't modify a string ever. Wait but I thought we can concatetanate with `..`
 Well yes but actually no. You're still not modifying anything, all you're doing is allocating a new string object and copying the data from the other two. In fact, a `string` object in lua is really just a pointer (everything in lua is tbh) to the address of a constant array of characters. You actually cannot make a string function to modify in place without some proxy string table 
 
 ### Correct Error Handling
-`pcall` and `xpcall` can be used to avoid errors but not many UEVR modders seem to understand the usage fully and don't take any of the values returned by `pcall` which contain the result and either the error message if it failed or the value returned by the inner function
+`pcall` and `xpcall` can be used to avoid errors but not many UEVR modders seem to understand the usage fully and don't take any of the values returned by `pcall`. These contain the result and either the error message if it failed or the value returned by the inner function if it succeeded
 ```lua
 local riskyvalue
 local success, result = pcall(function()
@@ -38,6 +33,7 @@ else riskyvalue = result
 end
 
 ```
+I usually just abbreviate to `local s,r = pcall()`
 
 ### Declaring locals
 Local variables should be used as much as possible. There's some oddities however. First of all you may have seen lua code that looks like this
@@ -73,7 +69,7 @@ You can iterate down nested tables like so
     t[b][c] = t[b][c] or a
   end
 ```
-Note that in that case you will get persistent storage even if t is nil but you won't be able to retrieve the values without a reference to the table created in the first line of func
+Note that in that case you will get persistent storage even if t is nil but you won't be able to retrieve the values without a reference to the table created in the first line.
 
 
 ### Ternary operator
@@ -93,13 +89,14 @@ Here's the same functionality using the trick
 local id = type(text) == "string" and text:sub(1, math.min(#text, 25)) or text
 ```
 This is obviously way better since it reduces line count without harming readability and combines declaration and conditional assignment into one step. I use this technique quite often but sometimes you should just stick with `if then else end`
+
 If you are doing anything with multiple steps please make use of parentheses and indents to improve readability and gate logic. Parentheses are never required for conditionals but they are always parsed so use them correctly
 
 You could technically force anything to be assignable like this by using an anonymous function e.g.
 ```lua
 a = a and b or (function() return c)() 
 ```
-This is a case where its become more complex and performs more operations. Just use if statements if its anything you can't assign 
+In this case you would be better off just using if then else.
 
 
 ### Conditional evaluation order
@@ -119,6 +116,7 @@ It can also happen if you use implicit `nil` checks e.g. `if not a then b end`
 
 ### multireturn/multiassignment
 if you've looked at the imgui api you must know that multireturn is a thing since most imgui functions make use of it. Its pretty intuitive and worth using sometimes, although its realistically no different than returning a table. If you want to discard a returned value that isn't at the end of the list just use _
+
 
 Here's an example of multiassignment
 ```lua
@@ -146,6 +144,7 @@ A nice feature of some "real" programming languages (and python) is the ability 
 
 ```lua
 function CreateTreeNode(args)
+    if not args or type(args) ~= "table" then return end
     local label = args.label or "Node Data"
     local keys = args.keys or args.data.__orderedIndex
     local parents = args.parents or nil
