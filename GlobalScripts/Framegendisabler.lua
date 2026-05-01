@@ -186,8 +186,6 @@ local function display_sr_settings()
     imgui.pop_item_width()
 end
 
-uevr.lua.add_script_panel("Super Resolution Settings", function()
-    display_sr_settings()
-end)
+uevr.lua.add_script_panel("Super Resolution Settings", display_sr_settings)
 
 
