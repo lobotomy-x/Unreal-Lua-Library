@@ -21,10 +21,65 @@ for i = 1, #t do
 end
 ```
 
+## Colon Syntax
+Unlike other lua types you cannot call any of the table functions on a table with colon syntax by default. This is because every table created with the `{}` operator has its own unique metatable for unclear reasons. To achieve behavior similar to other lua types and usertypes you can manually set the metatable to a proxy that points to `table`
+
+```lua
+local tablemt = {__index = table}
+function T(t)
+	return setmetatable(t or {}, tablemt)
+end
+```
+
+When calling from `table` lua will automatically recognize the input table as a table. But when calling from the table object with a colon it will only work if the metatable is set ahead of time.
+
+```lua
+	function table:extend(src)
+	    return table.move(src, 1, #src, #self + 1, self)
+	end
+```
+You can still use this function from `table` even if the metatables have not been set for the input tables.
+```lua
+	table.extend({1,2}, {3,4})
+	--{1,2,3,4}
+```
+
+`setmetatable` does return the input table so you can use it directly like so if you prefer to write this inline. 
+```lua
+	setmetatable({1,2}, {__index = table}):extend({3,4})
+```
+
+This syntax works too
+```lua
+	print(setmetatable({1,2}, {__index = table}):extend({3,4})[3])
+```
 
 
-**Unlike other lua types you cannot call any of the table functions on a table with colon syntax**
+```lua
+function table:merge(src)
+    for k, v in pairs(src) do
+        self[k] = v
+    end
+    return self
+end
 
+function table:contains(element)
+    if self == nil then
+        return false
+    end
+
+    for _, value in pairs(self) do
+        if value == element then
+            return true
+        end
+    end
+    return false
+end
+
+function table:empty()
+    return (not self or not next(self)) and true or false
+end
+```
 ### Adding Elements
 
 You can call table.insert(t, element) to add an item to the end of the table or table.insert(t, element, i) to insert at position i
@@ -42,8 +97,6 @@ print(x[4])
 --> 4
 ```
 
-
-
 ### Removing Elements
 For arrays you must iterate in reverse or removing elements will break things
 ```lua
@@ -54,7 +107,7 @@ for i = #t, 1, -1 do
   end
 end
 ```
-For other tables you can just set values to nil 
+For other tables you can just set values to nil if you're not trying to use the elements in the table
 ```lua
 function wipe_table(t)
 	while true do
@@ -69,62 +122,67 @@ end
 ## Metatables
 These provide class-like features in lua and allow objects to act like different types. `__index` pretends an object is a table
 
-
 **Accessing Container Elements**
 The information specifically regarding accessing elements applies to all tables as well as any object that has been assigned a metatable with an `__index` function assigned. e.g. you can use `vec["x"]` on a `Vector3f` 
  
-
+```lua
 local table1 = {
     "entry1", "entry2"
 }
-
+```
 this is perfectly valid, entry1 and entry2 are string entries
-
+```lua
 local table1 = {
     entry1, entry2
 }
-
+```
 this is probably not valid. entry1 and entry2 are pointers to variables, so if they don't exist you've attempted to index a nil value
-
+```lua
 local table1 = {
     entry1 = "entry2", entry3 = {
         "entry4", "entry5"
     }
 }
-
+```
 now entry1 is completely valid since we are assigning the value in the same step. You can access it with table1.entry1, but since we assigned a value to it that means its also a string index so we can access it with table1["entry1"]
 That may seem redundant so let's look at a couple more examples.
 
+this is absolutely not valid due to the whitespace
+
+```lua
 local table1 = {
     entry 1 = "entry2"
 }
+```
 
-
-this is absolutely not valid due to the whitespace
-
+this is valid. You can access it with table1["entry 1"] but not with dot notation
+```lua
 local table1 = {
     "entry 1" = "entry2"
 }
-
-
-this is valid. You can access it with table1["entry 1"] but not with dot notation
+```
 
 ## Ordered Pairs
+
+Lua tables only retain order when using numerical indexing. Therefore using `pairs` to iterate string keys will not preserve order. 
+
+
 ```lua
+
 function __genOrderedIndex(t)
-  local orderedIndex = t.__orderedIndex or {}
-  t.__keys = t.__keys or {}
-  t.__lookup = t.__lookup or {}
+  local orderedIndex = t.__orderedIndex or setmetatable({},{__index = table})
+  t.__keys = t.__keys or setmetatable({},{__index = table})
+  t.__lookup = t.__lookup or setmetatable({},{__index = table})
     -- ensure correct sorting for rotator to Vector3 handling
   -- idk why its like this but it is
   if #t == 3 and (t.pitch or t.Pitch) then
     return {"Pitch", "Yaw", "Roll"}
   end
   for key in pairs(t) do
-      table.insert(orderedIndex, type(key) == "string" and key or tostring(key))
+      orderedIndex[#orderedIndex+1] =  type(key) == "string" and key or tostring(key)
         t.__lookup[t[key]] = key
   end
-  table.sort(orderedIndex)
+  orderedIndex:sort()
 
   return orderedIndex
 end
@@ -147,10 +205,11 @@ end
 -- but its actually borderline unusable. we are fixing that
 -- normally this will generate a hidden table with the ordered index based on alphabetical order
 -- but you can instead provide a table with the correct order in the orderedPairs function
+-- this is crucial for dynamic param-building functions like BreakhitResult which requires empty table values with string keys
 function orderedNext(t, state)
   if not t then return end
 
-    t.__lookup = t.__lookup or {}
+    t.__lookup = t.__lookup or setmetatable({},{__index = table})
   local key = (t.__ordered_index ~= nil and state == nil) and t.__ordered_index[1] or nil
   --print("orderedNext: state = "..tostring(state) )
   if state == nil and t.__ordered_index == nil then
@@ -189,9 +248,10 @@ end
 -- you can prebuild your orderedIndex, directly assign it, or pass it here
 -- if you want to you can override pairs with orderedPairs in a local variable in your own script
 function orderedPairs(t, orderedIndex)
-      if is_array(t) then return
-        ipairs(t)
-      end
+    t = T(t)
+    if is_array(t) then
+     return ipairs(t)
+    end
     if orderedIndex ~= nil then
     t.__orderedIndex = orderedIndex
     end
@@ -216,13 +276,13 @@ end
 -- this is what I use most of the time
 -- very straight forward and simple to use
 function ordered_insert(tbl, new_key, new_value)
-  tbl.__orderedIndex = tbl.__orderedIndex or {}
-  tbl.__lookup = tbl.__lookup or {}
-  tbl.__keys = tbl.__keys or {}
+  tbl.__orderedIndex = tbl.__orderedIndex or setmetatable({},{__index = table})
+  tbl.__lookup = tbl.__lookup or setmetatable({},{__index = table})
+  tbl.__keys = tbl.__keys or setmetatable({},{__index = table})
   local t = tbl.__orderedIndex
   -- only update insertion order if its new
   if tbl[new_key] == nil then
-    table.insert(t, new_key)
+    t[#t+1] = new_key
     tbl.__keys[new_key] = #t
   end
   tbl[new_key] = new_value
@@ -230,82 +290,5 @@ function ordered_insert(tbl, new_key, new_value)
   return tbl
 end
 
-function get_n(tbl)
-  if is_array(tbl) then return #tbl
-  elseif tbl.__orderedIndex == nil then
-      __genOrderedIndex(tbl)
-  end
-  return #(tbl.__orderedIndex)
-end
 
-
-function extend_table(tbl1, tbl2)
-  if is_array(tbl1) and is_array(tbl2) then
-    for idx, val in ipairs(tbl2) do
-      table.insert(tbl1, val)
-    end
-  else
-    for k, v in orderedPairs(tbl2) do
-      if v ~= nil then
-        tbl1[k] = v
-      end
-    end
-  end
-end
-
-
-function combine_tables(tbl1, tbl2)
-  if is_array(tbl1) and is_array(tbl2) then
-    for idx, val in ipairs(tbl2) do
-      table.insert(tbl1, val)
-    end
-    for i = #tbl2, 1, -1 do
-      table.remove(tbl2, i)
-    end
-  else
-    for k, v in orderedPairs(tbl2) do
-      if v ~= nil then
-        tbl1[k] = v
-        tbl2[k] = nil
-      end
-    end
-  end
-  tbl2 = nil
-end
-
-
-function wipe_table(t)
-	while true do
-		local k = next(t)
-		if not k then break end
-		t[k] = nil
-	end
-end
-
-
--- split table into keys and values so you can iterate key names as an array
-function break_table(_table)
-	local keys, values = {}, {}
-	for k, v in orderedPairs(_table) do
-		table.insert(keys, k)
-		table.insert(values, v)
-	end
-	return keys, values
-end
--- split table into keys and values so you can iterate key names as an array
-function take_values(_table)
-	if is_array(_table) then return _table end
-	local values = {}
-	for k, v in orderedPairs(_table) do
-		table.insert(values, v)
-			end
-	return values
-end
-
-
-
-function can_index(lua_object)
-	local mt = getmetatable(lua_object)
-	return (not mt and type(lua_object) == "table") or (mt and not not mt.__index)
-end
 ```
